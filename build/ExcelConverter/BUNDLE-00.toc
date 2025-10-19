@@ -1,0 +1,3 @@
+([('ExcelConverter',
+   '/Users/robert/Desktop/git-work-space/ExcelReader/dist/ExcelConverter',
+   'EXECUTABLE')],)
