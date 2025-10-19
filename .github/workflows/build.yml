@@ -24,7 +24,7 @@ jobs:
     
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name "ExcelConverter" excel_reader.py
+        pyinstaller --onefile --windowed --name "ExcelConverter" --clean -y excel_reader.py
     
     - name: Upload Windows executable
       uses: actions/upload-artifact@v4
@@ -48,26 +48,21 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller openpyxl pandas
     
-    - name: Build with PyInstaller (macOS - onedir mode)
+    - name: Clean previous builds
       run: |
-        pyinstaller --onedir --windowed --name "ExcelConverter" excel_reader.py
+        rm -rf build dist *.spec
     
-    - name: Create DMG (optional)
+    - name: Build with PyInstaller
       run: |
-        brew install create-dmg
-        create-dmg \
-          --volname "ExcelConverter" \
-          --window-pos 200 120 \
-          --window-size 600 400 \
-          --icon-size 100 \
-          --app-drop-link 450 185 \
-          "ExcelConverter.dmg" \
-          "dist/ExcelConverter.app" || true
+        pyinstaller --onedir --windowed --name "ExcelConverter" --clean -y excel_reader.py
+    
+    - name: Zip macOS app
+      run: |
+        cd dist
+        zip -r ExcelConverter-macOS.zip ExcelConverter.app
     
     - name: Upload macOS app
       uses: actions/upload-artifact@v4
       with:
         name: ExcelConverter-macOS
-        path: |
-          dist/ExcelConverter.app
-          ExcelConverter.dmg
+        path: dist/ExcelConverter-macOS.zip
