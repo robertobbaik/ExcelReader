@@ -5,6 +5,7 @@ import pandas as pd
 from collections import Counter
 import json
 import os
+import glob
 
 class ExcelReaderApp:
     def __init__(self, root):
@@ -34,6 +35,19 @@ class ExcelReaderApp:
             pady=10
         )
         self.btn_select.pack(side=tk.LEFT, padx=5)
+        
+        # 폴더 선택 버튼 (새로 추가)
+        self.btn_select_folder = tk.Button(
+            top_frame,
+            text="📁 폴더 전체 변환",
+            command=self.select_and_convert_folder,
+            font=("Arial", 12),
+            bg="#E91E63",
+            fg="white",
+            padx=20,
+            pady=10
+        )
+        self.btn_select_folder.pack(side=tk.LEFT, padx=5)
         
         # 저장 디렉토리 선택 버튼
         self.btn_select_dir = tk.Button(
@@ -102,7 +116,7 @@ class ExcelReaderApp:
         self.label_class_name.pack(side=tk.LEFT, padx=5)
         
         # 안내 메시지
-        info_label = tk.Label(root, text="💡 팁: 컬럼명이 ~로 시작하면 해당 컬럼은 무시됩니다", font=("Arial", 9), fg="gray")
+        info_label = tk.Label(root, text="💡 팁: 컬럼명이 ~로 시작하면 해당 컬럼은 무시됩니다 | 📁 폴더 전체 변환으로 모든 엑셀 파일을 한번에 처리", font=("Arial", 9), fg="gray")
         info_label.pack(pady=5)
         
         # 결과 표시 영역
@@ -128,6 +142,123 @@ class ExcelReaderApp:
         
         scrollbar_y.config(command=self.text_result.yview)
         scrollbar_x.config(command=self.text_result.xview)
+    
+    def select_and_convert_folder(self):
+        """폴더를 선택하고 모든 Excel 파일을 변환"""
+        folder_path = filedialog.askdirectory(title="변환할 Excel 파일이 있는 폴더 선택")
+        
+        if not folder_path:
+            return
+        
+        # 저장 디렉토리 결정
+        if self.output_directory:
+            output_dir = self.output_directory
+        else:
+            output_dir = folder_path
+        
+        # 폴더 내의 모든 .xlsx 파일 찾기
+        excel_files = glob.glob(os.path.join(folder_path, "*.xlsx"))
+        excel_files += glob.glob(os.path.join(folder_path, "*.xls"))
+        
+        if not excel_files:
+            messagebox.showwarning("경고", "선택한 폴더에 Excel 파일이 없습니다!")
+            return
+        
+        # 결과 표시 초기화
+        self.text_result.delete(1.0, tk.END)
+        self.text_result.insert(tk.END, f"=== 폴더 내 모든 Excel 파일 변환 시작 ===\n")
+        self.text_result.insert(tk.END, f"폴더: {folder_path}\n")
+        self.text_result.insert(tk.END, f"발견된 파일: {len(excel_files)}개\n\n")
+        self.text_result.update()
+        
+        total_success = 0
+        total_fail = 0
+        generated_files = []
+        
+        # 각 Excel 파일 처리
+        for file_path in excel_files:
+            file_name = os.path.basename(file_path)
+            self.text_result.insert(tk.END, f"{'='*60}\n")
+            self.text_result.insert(tk.END, f"📄 파일: {file_name}\n")
+            self.text_result.insert(tk.END, f"{'='*60}\n")
+            self.text_result.update()
+            
+            try:
+                # 시트 이름 가져오기
+                workbook = openpyxl.load_workbook(file_path, read_only=True)
+                sheet_names = workbook.sheetnames
+                workbook.close()
+                
+                self.text_result.insert(tk.END, f"시트 개수: {len(sheet_names)}개\n\n")
+                self.text_result.update()
+                
+                # 각 시트 처리
+                for sheet_name in sheet_names:
+                    try:
+                        self.text_result.insert(tk.END, f"  처리 중: {sheet_name}...\n")
+                        self.text_result.update()
+                        
+                        # 시트 읽기
+                        df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+                        
+                        # 최소 2행 체크
+                        if len(df) < 2:
+                            self.text_result.insert(tk.END, f"    ⚠️  건너뜀: 데이터 부족\n")
+                            total_fail += 1
+                            continue
+                        
+                        # 클래스명 생성
+                        class_name = self.sanitize_class_name(sheet_name)
+                        
+                        # C# 클래스 코드 생성
+                        cs_code = self.create_csharp_class_code_from_df(df, class_name)
+                        
+                        # JSON 데이터 생성
+                        json_data = self.create_json_data_from_df(df)
+                        
+                        # 파일 저장
+                        cs_file_path = os.path.join(output_dir, f"{class_name}.cs")
+                        json_file_path = os.path.join(output_dir, f"{class_name}.json")
+                        
+                        with open(cs_file_path, 'w', encoding='utf-8') as f:
+                            f.write(cs_code)
+                        
+                        with open(json_file_path, 'w', encoding='utf-8') as f:
+                            json.dump(json_data, f, indent=2, ensure_ascii=False)
+                        
+                        self.text_result.insert(tk.END, f"    ✅ 성공: {class_name}.cs, {class_name}.json\n")
+                        generated_files.append(f"{class_name}.cs")
+                        generated_files.append(f"{class_name}.json")
+                        total_success += 1
+                        
+                    except Exception as e:
+                        self.text_result.insert(tk.END, f"    ❌ 실패: {str(e)}\n")
+                        total_fail += 1
+                
+                self.text_result.insert(tk.END, "\n")
+                self.text_result.update()
+                
+            except Exception as e:
+                self.text_result.insert(tk.END, f"  ❌ 파일 읽기 실패: {str(e)}\n\n")
+                total_fail += 1
+        
+        # 완료 메시지
+        self.text_result.insert(tk.END, f"\n{'='*60}\n")
+        self.text_result.insert(tk.END, "=== 변환 완료 ===\n")
+        self.text_result.insert(tk.END, f"처리된 Excel 파일: {len(excel_files)}개\n")
+        self.text_result.insert(tk.END, f"성공: {total_success}개 시트\n")
+        self.text_result.insert(tk.END, f"실패: {total_fail}개 시트\n")
+        self.text_result.insert(tk.END, f"저장 위치: {output_dir}\n\n")
+        self.text_result.insert(tk.END, "생성된 파일:\n")
+        for file in generated_files:
+            self.text_result.insert(tk.END, f"  - {file}\n")
+        
+        messagebox.showinfo("완료", 
+            f"폴더 내 모든 Excel 파일 변환 완료!\n\n"
+            f"처리된 파일: {len(excel_files)}개\n"
+            f"성공: {total_success}개 시트\n"
+            f"실패: {total_fail}개 시트\n\n"
+            f"저장 위치: {output_dir}")
     
     def select_file(self):
         file_path = filedialog.askopenfilename(
@@ -482,3 +613,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = ExcelReaderApp(root)
     root.mainloop()
+
+
